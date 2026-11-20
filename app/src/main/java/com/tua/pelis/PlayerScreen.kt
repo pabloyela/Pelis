@@ -78,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -376,106 +377,112 @@ fun PlayerScreen(
                 exit = fadeOut(),
                 modifier = Modifier.fillMaxSize()
             ) {
-                Box(Modifier.fillMaxSize().background(Color(0x80000000))) {
+                Box(Modifier.fillMaxSize()) {
+                    // Sombra suave solo arriba y abajo; el centro del video queda limpio
+                    Box(
+                        Modifier.align(Alignment.TopCenter).fillMaxWidth().fillMaxHeight(0.28f)
+                            .background(Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent)))
+                    )
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.35f)
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
+                    )
                     BoxWithConstraints(
                         Modifier
                             .fillMaxSize()
                             .windowInsetsPadding(WindowInsets.safeDrawing)
-                            .padding(horizontal = MargenBorde, vertical = 14.dp)
+                            .padding(horizontal = MargenBorde, vertical = 12.dp)
                     ) {
-                        val compact = maxWidth < 500.dp
+                        val compact = maxWidth < 600.dp
 
-                        // Arriba: regresar, título, ventana flotante
-                        Row(
-                            Modifier.align(Alignment.TopCenter).fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RoundButton(Icons.AutoMirrored.Rounded.ArrowBack, "Regresar", 56.dp) { host.close() }
-                            Text(
-                                title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(horizontal = 14.dp)
-                            )
-                            RoundButton(Icons.Rounded.PictureInPictureAlt, "Ventana flotante", 56.dp) { host.enterPip() }
+                        val tools: @Composable (Modifier) -> Unit = { m ->
+                            ToolButton(Icons.Rounded.Lock, "Bloquear", m) {
+                                locked = true
+                                controlsVisible = true
+                                touch()
+                            }
+                            ToolButton(Icons.Rounded.Speed, speedLabel(speed), m) { panel = Panel.VELOCIDAD }
+                            ToolButton(Icons.Rounded.AspectRatio, modosAjuste[ajuste].second, m) {
+                                ajuste = (ajuste + 1) % modosAjuste.size
+                                aviso = Aviso.Texto(modosAjuste[ajuste].second)
+                                touch()
+                            }
+                            ToolButton(Icons.Rounded.ScreenRotation, "Girar", m) {
+                                host.rotate()
+                                touch()
+                            }
+                            ToolButton(Icons.Rounded.Subtitles, "Pistas", m) { panel = Panel.PISTAS }
+                            ToolButton(Icons.Rounded.PictureInPictureAlt, "Flotante", m) { host.enterPip() }
                         }
 
-                        // Centro: -10, play/pausa, +10
+                        // ---- Arriba: regresar, título y herramientas ----
+                        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RoundButton(Icons.AutoMirrored.Rounded.ArrowBack, "Regresar", 52.dp) { host.close() }
+                                Text(
+                                    title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(horizontal = 14.dp)
+                                )
+                                if (!compact) {
+                                    Row(Modifier.widthIn(max = 480.dp)) { tools(Modifier.width(76.dp)) }
+                                }
+                            }
+                            if (compact) {
+                                Row(Modifier.fillMaxWidth().padding(top = 6.dp)) { tools(Modifier.weight(1f)) }
+                            }
+                        }
+
+                        // ---- Abajo: controles sobre la barra de tiempo ----
                         val playIcon = when {
                             playbackState == Player.STATE_ENDED -> Icons.Rounded.Replay
                             isPlaying -> Icons.Rounded.Pause
                             else -> Icons.Rounded.PlayArrow
                         }
-                        Row(
-                            Modifier.align(Alignment.Center),
-                            horizontalArrangement = Arrangement.spacedBy(if (compact) 28.dp else 56.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RoundButton(Icons.Rounded.Replay10, "Atrás 10 segundos", 72.dp) { jump(-10_000) }
-                            RoundButton(playIcon, "Reproducir o pausar", 100.dp, filled = true) { togglePlay() }
-                            RoundButton(Icons.Rounded.Forward10, "Adelante 10 segundos", 72.dp) { jump(10_000) }
-                        }
-
-                        // Abajo: barra de tiempo y herramientas
                         Column(
                             Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 28.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 val playlist = hasPrev || hasNext
                                 if (playlist) {
                                     RoundButton(Icons.Rounded.SkipPrevious, "Video anterior", 52.dp, enabled = hasPrev) { skip(false) }
                                 }
-                                Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                                    val drag = sliderDrag
-                                    val shown = if (drag != null) (drag * duration).toLong() else position
-                                    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
-                                        Text(formatTime(shown), color = Color.White, fontSize = 15.sp)
-                                        Spacer(Modifier.weight(1f))
-                                        Text(formatTime(duration), color = Color.White, fontSize = 15.sp)
-                                    }
-                                    Slider(
-                                        value = drag ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f,
-                                        onValueChange = {
-                                            sliderDrag = it
-                                            touch()
-                                        },
-                                        onValueChangeFinished = {
-                                            sliderDrag?.let { exo.seekTo((it * duration).toLong()) }
-                                            sliderDrag = null
-                                            touch()
-                                        },
-                                        colors = SliderDefaults.colors(
-                                            thumbColor = Acento,
-                                            activeTrackColor = Acento,
-                                            inactiveTrackColor = Color(0x55FFFFFF)
-                                        )
-                                    )
-                                }
+                                RoundButton(Icons.Rounded.Replay10, "Atrás 10 segundos", 60.dp) { jump(-10_000) }
+                                RoundButton(playIcon, "Reproducir o pausar", 76.dp, filled = true) { togglePlay() }
+                                RoundButton(Icons.Rounded.Forward10, "Adelante 10 segundos", 60.dp) { jump(10_000) }
                                 if (playlist) {
                                     RoundButton(Icons.Rounded.SkipNext, "Siguiente video", 52.dp, enabled = hasNext) { skip(true) }
                                 }
                             }
-                            Row(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(top = 2.dp)) {
-                                ToolButton(Icons.Rounded.Lock, "Bloquear", Modifier.weight(1f)) {
-                                    locked = true
-                                    controlsVisible = true
+                            Spacer(Modifier.height(6.dp))
+                            val drag = sliderDrag
+                            val shown = if (drag != null) (drag * duration).toLong() else position
+                            Slider(
+                                value = drag ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f,
+                                onValueChange = {
+                                    sliderDrag = it
                                     touch()
-                                }
-                                ToolButton(Icons.Rounded.Speed, speedLabel(speed), Modifier.weight(1f)) {
-                                    panel = Panel.VELOCIDAD
-                                }
-                                ToolButton(Icons.Rounded.AspectRatio, modosAjuste[ajuste].second, Modifier.weight(1f)) {
-                                    ajuste = (ajuste + 1) % modosAjuste.size
-                                    aviso = Aviso.Texto(modosAjuste[ajuste].second)
+                                },
+                                onValueChangeFinished = {
+                                    sliderDrag?.let { exo.seekTo((it * duration).toLong()) }
+                                    sliderDrag = null
                                     touch()
-                                }
-                                ToolButton(Icons.Rounded.ScreenRotation, "Girar", Modifier.weight(1f)) {
-                                    host.rotate()
-                                    touch()
-                                }
-                                ToolButton(Icons.Rounded.Subtitles, "Pistas", Modifier.weight(1f)) {
-                                    panel = Panel.PISTAS
-                                }
+                                },
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Acento,
+                                    activeTrackColor = Acento,
+                                    inactiveTrackColor = Color(0x55FFFFFF)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                                Text(formatTime(shown), color = Color.White, fontSize = 15.sp)
+                                Spacer(Modifier.weight(1f))
+                                Text(formatTime(duration), color = Color.White, fontSize = 15.sp)
                             }
                         }
                     }
@@ -512,9 +519,7 @@ fun PlayerScreen(
             if (a != null) {
                 Box(
                     Modifier
-                        .align(Alignment.TopCenter)
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .padding(top = 88.dp)
+                        .align(Alignment.Center)
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color(0xD9000000))
                         .padding(horizontal = 22.dp, vertical = 14.dp)
@@ -522,9 +527,8 @@ fun PlayerScreen(
             } else if (showResume) {
                 Row(
                     Modifier
-                        .align(Alignment.TopCenter)
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .padding(top = 88.dp, start = MargenBorde, end = MargenBorde)
+                        .align(Alignment.Center)
+                        .padding(horizontal = MargenBorde)
                         .clip(RoundedCornerShape(28.dp))
                         .background(Color(0xE6202026))
                         .padding(start = 20.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
@@ -589,7 +593,7 @@ private fun RoundButton(
         Modifier
             .size(size)
             .clip(CircleShape)
-            .background(if (filled) Acento else Color(0x66000000))
+            .background(if (filled) Acento.copy(alpha = 0.72f) else Color(0x33FFFFFF))
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -597,8 +601,8 @@ private fun RoundButton(
             icon, desc,
             tint = when {
                 !enabled -> Color(0x55FFFFFF)
-                filled -> Color.Black
-                else -> Color.White
+                filled -> Color(0xE6000000)
+                else -> Color(0xE6FFFFFF)
             },
             modifier = Modifier.size(size * 0.55f)
         )
@@ -614,9 +618,9 @@ private fun ToolButton(icon: ImageVector, label: String, modifier: Modifier = Mo
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(icon, label, tint = Color.White, modifier = Modifier.size(30.dp))
+        Icon(icon, label, tint = Color(0xE6FFFFFF), modifier = Modifier.size(26.dp))
         Text(
-            label, color = Color.White, fontSize = 12.sp, maxLines = 1,
+            label, color = Color(0xE6FFFFFF), fontSize = 12.sp, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)
         )
     }
