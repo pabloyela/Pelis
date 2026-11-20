@@ -1,9 +1,14 @@
 package com.tua.pelis
 
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import android.util.LruCache
 import android.util.Size
@@ -39,15 +44,22 @@ data class Video(
     val folderName: String,
     val date: Long,
     val width: Int,
-    val height: Int
+    val height: Int,
+    val fileName: String = "",
+    val path: String = "",
+    val mime: String = "",
+    val expires: Long = 0L
 )
 
 data class Carpeta(val id: Long, val name: String, val videos: List<Video>)
 
 object VideoRepo {
-    fun load(context: Context): List<Video> {
+    /** Carga los videos. Con [trashed] = true carga solo los que están en la papelera. */
+    fun load(context: Context, trashed: Boolean = false): List<Video> {
         val base = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        val projection = arrayOf(
+        val trashOk = Build.VERSION.SDK_INT >= 30
+        if (trashed && !trashOk) return emptyList()
+        val cols = mutableListOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
             MediaStore.Video.Media.DURATION,
@@ -56,14 +68,23 @@ object VideoRepo {
             MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
             MediaStore.Video.Media.DATE_ADDED,
             MediaStore.Video.Media.WIDTH,
-            MediaStore.Video.Media.HEIGHT
+            MediaStore.Video.Media.HEIGHT,
+            MediaStore.Video.Media.RELATIVE_PATH,
+            MediaStore.Video.Media.MIME_TYPE
         )
+        if (trashOk) cols += MediaStore.MediaColumns.DATE_EXPIRES
+        val args = Bundle().apply {
+            putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, "${MediaStore.Video.Media.DATE_ADDED} DESC")
+            if (trashOk) {
+                putInt(
+                    MediaStore.QUERY_ARG_MATCH_TRASHED,
+                    if (trashed) MediaStore.MATCH_ONLY else MediaStore.MATCH_EXCLUDE
+                )
+            }
+        }
         val result = mutableListOf<Video>()
         try {
-            context.contentResolver.query(
-                base, projection, null, null,
-                "${MediaStore.Video.Media.DATE_ADDED} DESC"
-            )?.use { c ->
+            context.contentResolver.query(base, cols.toTypedArray(), args, null)?.use { c ->
                 val iId = c.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
                 val iName = c.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
                 val iDur = c.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
@@ -73,20 +94,28 @@ object VideoRepo {
                 val iDate = c.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
                 val iW = c.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)
                 val iH = c.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
+                val iPath = c.getColumnIndexOrThrow(MediaStore.Video.Media.RELATIVE_PATH)
+                val iMime = c.getColumnIndexOrThrow(MediaStore.Video.Media.MIME_TYPE)
+                val iExp = c.getColumnIndex(MediaStore.MediaColumns.DATE_EXPIRES)
                 while (c.moveToNext()) {
                     val id = c.getLong(iId)
                     val name = c.getString(iName) ?: "Video"
                     result += Video(
                         id = id,
                         uri = ContentUris.withAppendedId(base, id),
-                        name = name.substringBeforeLast('.', name),
+                        name = name.substringBeforeLast('.', name)
+                            .removePrefix(".trashed-").replace(Regex("^\\d{10}-"), ""),
                         duration = c.getLong(iDur),
                         size = c.getLong(iSize),
                         folderId = c.getLong(iBucket),
                         folderName = c.getString(iBucketName) ?: "Sin carpeta",
                         date = c.getLong(iDate),
                         width = c.getInt(iW),
-                        height = c.getInt(iH)
+                        height = c.getInt(iH),
+                        fileName = name,
+                        path = c.getString(iPath) ?: "",
+                        mime = c.getString(iMime) ?: "",
+                        expires = if (iExp >= 0) c.getLong(iExp) else 0L
                     )
                 }
             }
@@ -208,4 +237,40 @@ fun resolutionLabel(w: Int, h: Int): String {
         short > 0 -> "${short}p"
         else -> ""
     }
+}
+
+/** Lee los formatos (códecs) de video y audio de un archivo. */
+fun readCodecs(context: Context, uri: Uri): String {
+    val ex = MediaExtractor()
+    return try {
+        ex.setDataSource(context, uri, null)
+        (0 until ex.trackCount)
+            .mapNotNull { ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME) }
+            .map { codecName(it) }
+            .distinct()
+            .joinToString(", ")
+            .ifBlank { "No disponible" }
+    } catch (e: Exception) {
+        "No disponible"
+    } finally {
+        ex.release()
+    }
+}
+
+private fun codecName(mime: String): String = when (mime.lowercase(Locale.US)) {
+    "video/avc" -> "H.264"
+    "video/hevc" -> "H.265 (HEVC)"
+    "video/x-vnd.on2.vp9" -> "VP9"
+    "video/x-vnd.on2.vp8" -> "VP8"
+    "video/av01" -> "AV1"
+    "video/mp4v-es" -> "MPEG-4"
+    "audio/mp4a-latm" -> "AAC"
+    "audio/ac3" -> "AC3 (Dolby)"
+    "audio/eac3" -> "E-AC3 (Dolby)"
+    "audio/vnd.dts", "audio/vnd.dts.hd" -> "DTS"
+    "audio/mpeg" -> "MP3"
+    "audio/opus" -> "Opus"
+    "audio/vorbis" -> "Vorbis"
+    "audio/flac" -> "FLAC"
+    else -> if (mime.startsWith("text/") || mime.startsWith("application/")) "Subtítulos" else mime
 }
