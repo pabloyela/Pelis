@@ -39,6 +39,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -231,13 +233,17 @@ private fun LibraryScreen() {
 
     BackHandler(enabled = folderId != null) { folderId = null }
 
+    // Posición de la lista (se conserva al volver del reproductor)
+    val estadoInicio = rememberLazyListState()
+    val estadoCarpeta = rememberSaveable(folderId, saver = LazyListState.Saver) { LazyListState() }
+
     val all = videos
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         val currentFolder = folderId
         if (all == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (currentFolder == null) {
-            HomeList(all, progress, continueIds) { folderId = it }
+            HomeList(all, progress, continueIds, estadoInicio) { folderId = it }
         } else if (currentFolder == PAPELERA) {
             TrashList(
                 list = trash,
@@ -248,7 +254,7 @@ private fun LibraryScreen() {
         } else {
             val list = if (currentFolder == TODOS) all else all.filter { it.folderId == currentFolder }
             val title = if (currentFolder == TODOS) "Todos los videos" else list.firstOrNull()?.folderName ?: ""
-            FolderList(title, list, progress, onBack = { folderId = null }, onTrash = { moveToTrash(it) })
+            FolderList(title, list, progress, estadoCarpeta, onBack = { folderId = null }, onTrash = { moveToTrash(it) })
         }
     }
 }
@@ -284,6 +290,7 @@ private fun HomeList(
     all: List<Video>,
     progress: Map<String, Float>,
     continueIds: List<String>,
+    estado: LazyListState,
     onFolder: (Long) -> Unit
 ) {
     val context = LocalContext.current
@@ -291,7 +298,7 @@ private fun HomeList(
     val continuing = remember(all, continueIds) { continueIds.mapNotNull { byUri[it] }.take(15) }
     val folders = remember(all) { VideoRepo.folders(all) }
 
-    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(state = estado, contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             Text(
                 "Pelis", fontSize = 34.sp, fontWeight = FontWeight.Bold,
@@ -468,6 +475,7 @@ private fun FolderList(
     title: String,
     list: List<Video>,
     progress: Map<String, Float>,
+    estado: LazyListState,
     onBack: () -> Unit,
     onTrash: (List<Video>) -> Unit
 ) {
@@ -489,7 +497,7 @@ private fun FolderList(
                 fontSize = 18.sp, color = TextoSuave, modifier = Modifier.padding(24.dp)
             )
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.weight(1f), state = estado, contentPadding = PaddingValues(bottom = 24.dp)) {
             items(list.size, key = { list[it].id }) { index ->
                 val v = list[index]
                 val isSel = v.id in selected
