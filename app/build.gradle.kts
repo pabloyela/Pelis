@@ -5,35 +5,34 @@ plugins {
 }
 
 android {
-    namespace = "com.tua.pelis"
+    namespace = "com.tua.baul"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.tua.pelis"
-        minSdk = 29
+        applicationId = "com.tua.baul"
+        minSdk = 30
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "2.1"
     }
 
-    // Llave fija: así cada APK nuevo se instala encima del anterior
-    // sin desinstalar (y sin perder el progreso guardado).
+    // Llave fija: cada APK nuevo se instala encima del anterior (¡y no se pierde la bóveda!)
     signingConfigs {
-        create("pelis") {
-            storeFile = file("pelis.keystore")
-            storePassword = "pelis123"
-            keyAlias = "pelis"
-            keyPassword = "pelis123"
+        create("baul") {
+            storeFile = file("baul.keystore")
+            storePassword = "baul1234"
+            keyAlias = "baul"
+            keyPassword = "baul1234"
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("pelis")
+            signingConfig = signingConfigs.getByName("baul")
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("pelis")
+            signingConfig = signingConfigs.getByName("baul")
         }
     }
 
@@ -43,7 +42,10 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
-        freeCompilerArgs += listOf("-opt-in=androidx.media3.common.util.UnstableApi")
+        freeCompilerArgs += listOf(
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.media3.common.util.UnstableApi"
+        )
     }
     buildFeatures {
         compose = true
@@ -55,12 +57,13 @@ dependencies {
     implementation(composeBom)
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
 }
